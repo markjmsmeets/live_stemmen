@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docent · Live stemmen</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top"><span class="mark" aria-hidden="true">■</span><b>Live stemmen · docent</b><span class="right" id="status"></span></header>
+<main id="app" class="wide"></main>
+<script src="/common.js"></script>
+<script>
+'use strict';
+const app = document.getElementById('app');
+let questions = [];
+let needsPassword = false;
+let session = null; // {code, token}
+let es = null;
+
+try { questions = JSON.parse(store.get('zv-questions') || '[]'); } catch (_) { questions = []; }
+if (!questions.length) questions = [
+  { type: 'choice', text: 'Voorbeeldvraag: wat is de hoofdstad van Nederland?', options: ['Amsterdam', 'Den Haag', 'Maastricht'], correct: 0, scaleLabels: ['', ''] },
+  { type: 'scale', text: 'Ik voel me zeker over de stof van vandaag.', options: [], correct: null, scaleLabels: ['Helemaal niet', 'Helemaal wel'] },
+  { type: 'open', text: 'Welk woord past bij verpleegkunde?', options: [], correct: null, scaleLabels: ['', ''] },
+];
+const save = () => store.set('zv-questions', JSON.stringify(questions));
+
+/* ---------- opbouwscherm ---------- */
+async function showSetup(msg) {
+  if (es) { es.close(); es = null; }
+  session = null;
+  const cfg = await api('/api/config');
+  needsPassword = !!(cfg.data && cfg.data.needsPassword);
+  const list = h('div', {});
+  const err = h('div', { class: 'err', role: 'alert' }, msg || '');
+  const pw = h('input', { type: 'password', id: 'pw', autocomplete: 'current-password' });
+
+  function drawList() {
+    list.replaceChildren();
+    questions.forEach((q, i) => list.append(card(q, i)));
+  }
+  function card(q, i) {
+    const text = h('input', { value: q.text, maxlength: 300, 'aria-label': 'Vraagtekst', oninput: () => { q.text = text.value; save(); } });
+    const type = h('select', { 'aria-label': 'Type', onchange: () => { q.type = type.value; if (q.type === 'choice' && q.options.length < 2) q.options = ['', '']; save(); drawList(); } },
+      h('option', { value: 'choice' }, 'Meerkeuze / quiz'), h('option', { value: 'scale' }, 'Schaal 1–5'), h('option', { value: 'open' }, 'Open vraag (woordenwolk)'));
+    type.value = q.type;
+    const body = h('div', {});
+    if (q.type === 'choice') {
+      const ta = h('textarea', { rows: 4, 'aria-label': 'Antwoordopties, één per regel', placeholder: 'Eén optie per regel (2 tot 8)' });
+      ta.value = q.options.join('\n');
+      const sel = h('select', { 'aria-label': 'Goede antwoord' });
+      const fill = () => {
+        sel.replaceChildren(h('option', { value: '' }, 'Geen goed antwoord (peiling)'));
+        q.options.forEach((o, k) => sel.append(h('option', { value: k }, String.fromCharCode(65 + k) + '. ' + o)));
+        sel.value = q.correct == null ? '' : String(q.correct);
+      };
+      ta.addEventListener('input', () => { q.options = ta.value.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 8); if (q.correct >= q.options.length) q.correct = null; fill(); save(); });
+      sel.addEventListener('change', () => { q.correct = sel.value === '' ? null : Number(sel.value); save(); });
+      fill();
+      body.append(h('label', {}, 'Antwoordopties'), ta, h('label', {}, 'Goede antwoord (maakt er een quizvraag van)'), sel);
+    } else if (q.type === 'scale') {
+      const a = h('input', { value: q.scaleLabels[0], maxlength: 40, 'aria-label': 'Label bij 1', oninput: () => { q.scaleLabels[0] = a.value; save(); } });
+      const b = h('input', { value: q.scaleLabels[1], maxlength: 40, 'aria-label': 'Label bij 5', oninput: () => { q.scaleLabels[1] = b.value; save(); } });
+      body.append(h('div', { class: 'two' }, h('div', {}, h('label', {}, 'Label bij 1'), a), h('div', {}, h('label', {}, 'Label bij 5'), b)));
+    } else {
+      body.append(h('p', { class: 'muted small' }, 'Studenten typen maximaal 3 woorden of korte zinnen. Gelijke antwoorden worden samengevoegd.'));
+    }
+    const mv = (d) => { const j = i + d; if (j < 0 || j >= questions.length) return; [questions[i], questions[j]] = [questions[j], questions[i]]; save(); drawList(); };
+    return h('div', { class: 'qcard' },
+      h('header', {}, h('strong', {}, 'Vraag ' + (i + 1)), h('span', { class: 'sp' }),
+        h('button', { 'aria-label': 'Omhoog', onclick: () => mv(-1) }, '↑'), h('button', { 'aria-label': 'Omlaag', onclick: () => mv(1) }, '↓'),
+        h('button', { 'aria-label': 'Verwijder vraag', onclick: () => { questions.splice(i, 1); save(); drawList(); } }, '✕')),
+      h('label', {}, 'Vraag'), text, h('label', {}, 'Type'), type, body);
+  }
+
+  const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: async () => {
+    try {
+      const data = JSON.parse(await fileIn.files[0].text());
+      if (!Array.isArray(data)) throw new Error();
+      questions = data.map((q) => ({ type: q.type, text: q.text || '', options: q.options || [], correct: Number.isInteger(q.correct) ? q.correct : null, scaleLabels: q.scaleLabels || ['', ''] }));
+      save(); drawList(); err.textContent = '';
+    } catch (_) { err.textContent = 'Dit bestand is geen geldige vragenlijst.'; }
+  } });
+  const exportBox = h('textarea', { rows: 6, readonly: true, hidden: true, 'aria-label': 'Vragenlijst als JSON' });
+
+  const startBtn = h('button', { class: 'primary', onclick: async () => {
+    err.textContent = '';
+    const r = await api('/api/session', { questions, password: needsPassword ? pw.value : undefined });
+    if (!r.ok) {
+      err.textContent = r.status === 401 ? 'Wachtwoord klopt niet.' : 'Controleer je vragen: elke vraag heeft tekst nodig, meerkeuze minimaal 2 opties.';
+      return;
+    }
+    session = r.data;
+    try { sessionStorage.setItem('zv-host', JSON.stringify(session)); } catch (_) { /* geen opslag */ }
+    showRun();
+  } }, 'Sessie starten');
+
+  app.replaceChildren(
+    h('h1', {}, 'Nieuwe sessie'),
+    h('p', { class: 'muted' }, 'Stel je vragen samen en start de sessie. Studenten gaan naar het adres van deze site en vullen de code in die je daarna ziet.'),
+    list,
+    h('div', { class: 'row' },
+      h('button', { onclick: () => { questions.push({ type: 'choice', text: '', options: ['', ''], correct: null, scaleLabels: ['', ''] }); save(); drawList(); } }, '+ Vraag toevoegen'),
+      h('button', { onclick: () => { exportBox.hidden = false; exportBox.value = JSON.stringify(questions, null, 2); exportBox.select(); } }, 'Vragen als JSON tonen'),
+      h('button', { onclick: () => fileIn.click() }, 'Vragen importeren'), fileIn),
+    exportBox,
+    needsPassword ? h('div', {}, h('label', { for: 'pw' }, 'Docentwachtwoord'), pw) : null,
+    h('div', { class: 'row', style: 'margin-top:1.2rem' }, startBtn),
+    err);
+  drawList();
+}
+
+/* ---------- bedieningsscherm ---------- */
+function showRun() {
+  const base = location.origin;
+  const codeEl = h('div', { class: 'code-big', 'aria-label': 'Sessiecode' });
+  const infoEl = h('div', {});
+  const ctrl = h('div', { class: 'row' });
+  const listEl = h('ul', { class: 'qlist' });
+  const mainEl = h('div', { class: 'card' });
+  const sideEl = h('div', { class: 'card' });
+  const topCard = h('div', { class: 'card row' }, h('div', {}, h('div', { class: 'muted small' }, 'Studenten gaan naar ' + base.replace(/^https?:\/\//, '') + ' en voeren in:'), codeEl), infoEl);
+  app.replaceChildren(topCard, ctrl, h('div', { class: 'grid' }, h('div', { class: 'card' }, h('h3', {}, 'Vragen'), listEl), mainEl, sideEl));
+  const post = (action, extra) => api('/api/s/' + session.code + '/host', Object.assign({ token: session.token, action }, extra));
+
+  es = connect('/api/s/' + session.code + '/events?token=' + session.token, (st) => {
+    codeEl.textContent = st.code;
+    document.getElementById('status').textContent = st.participants + ' deelnemers';
+    infoEl.replaceChildren(
+      h('div', { style: 'margin-left:auto;text-align:right' }, h('span', { class: 'pill' }, st.participants + ' deelnemers'), h('br'),
+        st.phase === 'open' ? h('span', { class: 'small' }, st.answered + ' van ' + st.participants + ' hebben geantwoord') : null));
+    ctrl.replaceChildren();
+    if (st.phase === 'lobby') ctrl.append(h('button', { class: 'primary', onclick: () => post('next') }, 'Start vraag 1'));
+    if (st.phase === 'open') ctrl.append(h('button', { class: 'primary', onclick: () => post('reveal') }, 'Sluit stemmen en toon resultaat'));
+    if (st.phase === 'revealed') {
+      const last = st.current + 1 >= st.total;
+      ctrl.append(h('button', { class: 'primary', onclick: () => post('next') }, last ? 'Afronden' : 'Volgende vraag'),
+        h('button', { onclick: () => post('reopen') }, 'Stemmen heropenen'));
+    }
+    if (st.phase === 'open' || st.phase === 'revealed') ctrl.append(h('button', { onclick: () => post('toggleLive') }, st.showLive ? 'Live resultaten verbergen voor studenten' : 'Live resultaten tonen aan studenten'));
+    if (st.hasQuiz && (st.phase === 'open' || st.phase === 'revealed')) ctrl.append(h('button', { onclick: () => post('toggleBoard') }, st.showBoard ? 'Ranglijst verbergen' : 'Ranglijst tonen'));
+    ctrl.append(h('a', { class: 'btn', href: '/screen.html?c=' + st.code, target: '_blank', rel: 'noopener' }, 'Beamerscherm openen ↗'),
+      h('a', { class: 'btn', href: '/api/s/' + st.code + '/export?token=' + session.token, download: '' }, 'Resultaten downloaden (CSV)'),
+      h('button', { onclick: () => { if (confirm('Sessie beëindigen?')) post('end'); } }, 'Beëindigen'),
+      h('button', { onclick: () => { try { sessionStorage.removeItem('zv-host'); } catch (_) { /* weg */ } showSetup(); } }, 'Naar nieuwe sessie'));
+
+    listEl.replaceChildren();
+    (st.titles || []).forEach((t, i) => listEl.append(h('li', {}, h('button', { class: i === st.current && st.phase !== 'ended' ? 'cur' : '', onclick: () => post('goto', { index: i }) }, (i + 1) + '. ' + (t.length > 50 ? t.slice(0, 50) + '…' : t)))));
+
+    mainEl.replaceChildren();
+    if (st.phase === 'lobby') mainEl.append(h('h2', {}, 'Wachtruimte'), h('p', {}, 'Wacht tot de studenten binnen zijn en start dan de eerste vraag.'));
+    else if (st.phase === 'ended') mainEl.append(h('h2', {}, 'Sessie afgerond'), h('p', {}, 'Download de resultaten als CSV als je ze wilt bewaren.'));
+    else if (st.question) {
+      mainEl.append(h('span', { class: 'pill' }, st.phase === 'open' ? 'Stemmen open' : 'Stemmen gesloten'),
+        h('h2', { style: 'margin-top:.6rem' }, st.question.text),
+        renderResults(st.question, st.results, { correct: st.question.correct, onRemove: st.question.type === 'open' ? (w) => post('remove', { word: w }) : null }));
+      if (st.question.type === 'open') mainEl.append(h('p', { class: 'muted small' }, 'Klik op een woord om het te verwijderen (bijvoorbeeld ongepaste antwoorden).'));
+    }
+    sideEl.replaceChildren();
+    if (st.board) sideEl.append(renderBoard(st.board));
+    else sideEl.append(h('h3', {}, 'Ranglijst'), h('p', { class: 'muted small' }, 'Verschijnt bij quizvragen (vragen met een goed antwoord).'));
+  }, () => { try { sessionStorage.removeItem('zv-host'); } catch (_) { /* weg */ } showSetup('De sessie bestaat niet meer. Start een nieuwe.'); });
+}
+
+let stored = null;
+try { stored = JSON.parse(sessionStorage.getItem('zv-host') || 'null'); } catch (_) { stored = null; }
+if (stored && stored.code && stored.token) { session = stored; showRun(); } else showSetup();
+</script>
+</body>
+</html>

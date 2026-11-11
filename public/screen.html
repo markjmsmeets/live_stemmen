@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beamerscherm · Live stemmen</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="screen" id="root"></div>
+<script src="/common.js"></script>
+<script>
+'use strict';
+const root = document.getElementById('root');
+const code = (new URLSearchParams(location.search).get('c') || '').replace(/\D/g, '');
+const host = location.host;
+
+function frame(st, stage) {
+  root.replaceChildren(
+    h('div', { class: 'bar-top' }, h('span', { style: 'color:var(--zuyd-rood)', 'aria-hidden': 'true' }, '■'),
+      h('b', {}, 'Doe mee op ' + host), h('span', {}, 'code '), h('b', {}, st.code),
+      h('span', { class: 'r' }, st.participants + ' deelnemers' + (st.phase === 'open' ? ' · ' + st.answered + ' antwoorden' : ''))),
+    h('div', { class: 'stage' }, stage));
+}
+
+if (code.length !== 5) {
+  root.replaceChildren(h('main', {}, h('form', { class: 'card', onsubmit: (e) => { e.preventDefault(); location.search = '?c=' + e.target.c.value; } },
+    h('h1', {}, 'Beamerscherm'), h('label', { for: 'c' }, 'Sessiecode'), h('input', { id: 'c', name: 'c', inputmode: 'numeric', maxlength: 5 }),
+    h('div', { style: 'margin-top:1rem' }, h('button', { class: 'primary' }, 'Openen')))));
+} else {
+  connect('/api/s/' + code + '/events', (st) => {
+    if (st.phase === 'lobby') {
+      frame(st, h('div', { class: 'center' }, h('h1', {}, 'Ga naar ' + host), h('p', {}, 'en voer de code in'), h('div', { class: 'code-big' }, st.code),
+        h('p', { class: 'muted' }, 'Wachten op de eerste vraag…')));
+    } else if (st.phase === 'ended') {
+      frame(st, st.board ? renderBoard(st.board, 'Eindstand') : h('div', { class: 'center' }, h('h1', {}, 'Bedankt voor het meedoen')));
+    } else if (st.showBoard && st.board) {
+      frame(st, renderBoard(st.board, 'Ranglijst'));
+    } else {
+      const q = st.question;
+      const parts = [h('h1', {}, q.text)];
+      if (st.phase === 'open' && !st.results) parts.push(h('p', { style: 'font-size:1.8rem' }, 'Stem nu via je telefoon · ' + st.answered + ' van ' + st.participants + ' gestemd'));
+      if (q.type === 'choice' && st.phase === 'open' && !st.results) {
+        q.options.forEach((o, i) => parts.push(h('p', { style: 'font-size:1.8rem;margin:.3rem 0' }, String.fromCharCode(65 + i) + '. ' + o)));
+      }
+      if (st.results) parts.push(renderResults(q, st.results, { correct: q.correct, big: true }));
+      if (st.phase === 'revealed') parts.push(h('p', { class: 'pill' }, 'Stemmen gesloten'));
+      frame(st, parts);
+    }
+  }, () => root.replaceChildren(h('main', {}, h('div', { class: 'card' }, h('h1', {}, 'Sessie niet gevonden'), h('p', {}, 'Controleer de code of start een nieuwe sessie.')))));
+}
+</script>
+</body>
+</html>

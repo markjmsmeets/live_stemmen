@@ -1,0 +1,93 @@
+:root {
+  --zuyd-rood: #e81a32;
+  --zwart: #000;
+  --wit: #fff;
+  --grijs: #f2f2f2;
+  --accent: #007bc7; /* enige secundaire kleur: actieknoppen en actieve toestand */
+  --font-kop: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-tekst: "Avenir Next LT Pro", "Avenir Next", Inter, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { font-size: 17px; }
+body { margin: 0; font-family: var(--font-tekst); line-height: 1.55; color: var(--zwart); background: var(--wit); }
+h1, h2, h3 { font-family: var(--font-kop); font-weight: 700; line-height: 1.2; margin: 0 0 .5em; }
+h1 { font-size: 1.9rem; } h2 { font-size: 1.5rem; } h3 { font-size: 1.15rem; }
+.top { display: flex; align-items: center; gap: .6rem; padding: .8rem 1.2rem; border-bottom: 3px solid var(--zuyd-rood); font-family: var(--font-kop); }
+.top .mark { color: var(--zuyd-rood); }
+.top .right { margin-left: auto; font-size: .9rem; }
+main { max-width: 720px; margin: 0 auto; padding: 1.2rem; }
+.wide { max-width: 1280px; }
+.card { background: var(--wit); border: 2px solid var(--zwart); padding: 1.2rem; margin-bottom: 1rem; }
+.muted { color: #555; }
+.small { font-size: .85rem; }
+
+button, .btn { font: inherit; cursor: pointer; border: 2px solid var(--zwart); background: var(--wit); color: var(--zwart); padding: .7rem 1rem; text-align: left; min-height: 48px; text-decoration: none; display: inline-block; }
+button:hover:not(:disabled) { background: var(--grijs); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .55; cursor: default; }
+button.primary { background: var(--zuyd-rood); border-color: var(--zuyd-rood); color: var(--wit); font-weight: 700; }
+button.primary:hover:not(:disabled) { background: #c8132a; }
+button.act { background: var(--accent); border-color: var(--accent); color: var(--wit); }
+button.sel { background: var(--accent); border-color: var(--accent); color: var(--wit); font-weight: 700; }
+button.sel::after { content: "  ✓"; }
+button.sel:hover:not(:disabled), button.act:hover:not(:disabled), .qlist button.cur:hover { background: var(--accent); color: var(--wit); }
+.row { margin-bottom: 1rem; }
+.opts { display: grid; gap: .6rem; }
+.opts.scale { grid-template-columns: repeat(5, 1fr); }
+.opts.scale button { text-align: center; font-size: 1.5rem; font-weight: 700; padding: 1rem 0; }
+.scale-ends { display: flex; justify-content: space-between; font-size: .85rem; margin-top: .4rem; }
+.row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+.row.end { justify-content: flex-end; }
+
+input, select, textarea { font: inherit; width: 100%; padding: .65rem .7rem; border: 2px solid var(--zwart); background: var(--wit); color: var(--zwart); border-radius: 0; }
+label { display: block; font-weight: 700; margin: .8rem 0 .25rem; }
+.err { color: #b00018; font-weight: 700; margin-top: .6rem; }
+.ok { font-weight: 700; }
+
+/* resultaten */
+.bar-row { display: grid; grid-template-columns: minmax(120px, 34%) 1fr 90px; gap: .6rem; align-items: center; margin: .45rem 0; }
+.bar { background: var(--grijs); height: 28px; }
+.bar-fill { background: var(--zwart); height: 100%; min-width: 2px; transition: width .35s ease; }
+.bar-row.correct .bar-fill { background: var(--accent); }
+.bar-row.correct .bar-label { font-weight: 700; }
+.bar-num { font-variant-numeric: tabular-nums; text-align: right; }
+.avg { font-family: var(--font-kop); font-size: 2rem; font-weight: 700; margin: .6rem 0 0; }
+.cloud { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; align-items: baseline; justify-content: center; padding: .6rem 0; }
+.cloud .w { font-family: var(--font-kop); font-weight: 700; line-height: 1.1; }
+.cloud button.w { border: 0; background: none; min-height: 0; padding: 0 .1rem; }
+.cloud button.w:hover { text-decoration: line-through; background: none; }
+.board { list-style: none; margin: 0; padding: 0; counter-reset: r; }
+.board li { display: flex; gap: .8rem; padding: .45rem .2rem; border-bottom: 1px solid #ccc; counter-increment: r; }
+.board li::before { content: counter(r) "."; width: 2rem; font-weight: 700; }
+.board li span.n { flex: 1; }
+.board li span.p { font-variant-numeric: tabular-nums; font-weight: 700; }
+.code-big { font-family: var(--font-kop); font-weight: 700; font-size: 3.2rem; letter-spacing: .12em; line-height: 1; }
+.pill { display: inline-block; background: var(--zwart); color: var(--wit); padding: .1rem .6rem; font-size: .85rem; }
+
+/* docent */
+.grid { display: grid; grid-template-columns: 260px 1fr 280px; gap: 1rem; align-items: start; }
+@media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+.qlist { list-style: none; margin: 0; padding: 0; }
+.qlist button { width: 100%; margin-bottom: .35rem; padding: .5rem .7rem; min-height: 0; font-size: .92rem; }
+.qlist button.cur { background: var(--accent); border-color: var(--accent); color: var(--wit); }
+.qcard { border: 2px solid var(--zwart); padding: 1rem; margin-bottom: 1rem; }
+.qcard header { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+.qcard header strong { font-family: var(--font-kop); }
+.qcard header .sp { flex: 1; }
+.qcard header button { min-height: 36px; padding: .2rem .6rem; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+
+/* beamer */
+.screen { min-height: 100vh; display: flex; flex-direction: column; }
+.screen .bar-top { display: flex; align-items: center; gap: 1rem; padding: 1rem 2rem; border-bottom: 4px solid var(--zuyd-rood); font-family: var(--font-kop); font-size: 1.3rem; }
+.screen .bar-top .r { margin-left: auto; }
+.screen .stage { flex: 1; padding: 2rem 3rem; max-width: 1400px; width: 100%; margin: 0 auto; }
+.screen h1 { font-size: 3rem; }
+.screen .bar-row { font-size: 1.6rem; } .screen .bar { height: 44px; }
+.screen .avg { font-size: 3.5rem; }
+.screen .board li { font-size: 1.8rem; }
+.screen .cloud .w { font-size: inherit; }
+.center { text-align: center; padding-top: 6vh; }
+.center .code-big { font-size: 8rem; }
+
+@media (prefers-reduced-motion: reduce) { .bar-fill { transition: none; } }

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live stemmen</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top"><span class="mark" aria-hidden="true">■</span><b>Live stemmen</b><span class="right" id="who"></span></header>
+<main id="app"></main>
+<script src="/common.js"></script>
+<script>
+'use strict';
+const app = document.getElementById('app');
+const params = new URLSearchParams(location.search);
+let code = (params.get('c') || '').replace(/\D/g, '');
+let pid = null;
+let es = null;
+let last = null;
+let lastKey = null;
+let qbox, resbox, metabox;
+
+function showJoin(msg) {
+  if (es) { es.close(); es = null; }
+  qbox = null; lastKey = null;
+  const codeIn = h('input', { id: 'code', inputmode: 'numeric', autocomplete: 'off', maxlength: 5, value: code, placeholder: '5 cijfers' });
+  const nameIn = h('input', { id: 'name', maxlength: 30, autocomplete: 'nickname', value: store.get('zv-name') || '', placeholder: 'Bijv. Sam (optioneel bij peilingen)' });
+  const err = h('div', { class: 'err', role: 'alert' }, msg || '');
+  const form = h('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    code = codeIn.value.replace(/\D/g, '');
+    const name = nameIn.value.trim();
+    store.set('zv-name', name);
+    const r = await api('/api/s/' + code + '/join', { name, pid: store.get('zv-pid-' + code) || undefined });
+    if (!r.ok) {
+      err.textContent = r.status === 404 ? 'Deze code bestaat niet (meer). Controleer de code op het scherm.'
+        : r.data.error === 'name_required' ? 'Vul een naam in; die is nodig voor de ranglijst.'
+        : r.data.error === 'full' ? 'Deze sessie zit vol.' : 'Meedoen is niet gelukt.';
+      return;
+    }
+    pid = r.data.pid;
+    store.set('zv-pid-' + code, pid);
+    history.replaceState(null, '', '?c=' + code);
+    start();
+  } },
+  h('h1', {}, 'Doe mee'),
+  h('label', { for: 'code' }, 'Sessiecode'), codeIn,
+  h('label', { for: 'name' }, 'Naam'), nameIn,
+  h('div', { class: 'row', style: 'margin-top:1rem' }, h('button', { class: 'primary', type: 'submit' }, 'Meedoen')),
+  err);
+  app.replaceChildren(form);
+  document.getElementById('who').textContent = '';
+  (code ? nameIn : codeIn).focus();
+}
+
+function start() {
+  metabox = h('p', { class: 'muted small', 'aria-live': 'off' });
+  qbox = h('section', { class: 'card', 'aria-live': 'polite' });
+  resbox = h('section', {});
+  app.replaceChildren(metabox, qbox, resbox);
+  lastKey = null;
+  es = connect('/api/s/' + code + '/events?pid=' + pid, render, () => {
+    store.del('zv-pid-' + code);
+    showJoin('De sessie is afgelopen of bestaat niet meer.');
+  });
+}
+
+async function send(value) {
+  const r = await api('/api/s/' + code + '/answer', { pid, value });
+  if (!r.ok && r.data.error === 'closed') { qbox.append(h('p', { class: 'err' }, 'Stemmen is gesloten.')); }
+}
+
+function render(st) {
+  last = st;
+  const me = st.me;
+  document.getElementById('who').textContent = me ? me.name + (st.hasQuiz ? ' · ' + me.score + ' pt' : '') : '';
+  metabox.textContent = st.current >= 0 && st.phase !== 'ended' ? 'Vraag ' + (st.current + 1) + ' van ' + st.total : 'Sessie ' + st.code;
+  const key = [st.phase, st.current, JSON.stringify(me && me.answer), me && me.points, me && me.rank].join('|');
+  if (key !== lastKey) { lastKey = key; buildQ(st); }
+  resbox.replaceChildren();
+  if (st.results && st.question) {
+    resbox.append(h('div', { class: 'card' }, h('h3', {}, 'Resultaten'), renderResults(st.question, st.results, { correct: st.question.correct })));
+  }
+  if (st.board) resbox.append(h('div', { class: 'card' }, renderBoard(st.board)));
+}
+
+function buildQ(st) {
+  const me = st.me || {};
+  qbox.replaceChildren();
+  if (st.phase === 'lobby') {
+    qbox.append(h('h2', {}, 'Je doet mee!'), h('p', {}, 'Wacht tot de docent de eerste vraag opent. Dit scherm werkt vanzelf bij.'));
+    return;
+  }
+  if (st.phase === 'ended') {
+    qbox.append(h('h2', {}, 'Bedankt voor het meedoen'));
+    if (st.hasQuiz) qbox.append(h('p', {}, 'Je staat op plek ' + me.rank + ' met ' + me.score + ' punten.'));
+    return;
+  }
+  const q = st.question;
+  const open = st.phase === 'open';
+  qbox.append(h('h2', {}, q.text));
+  if (q.type === 'choice') {
+    const locked = !open || (q.quiz && me.answer != null);
+    const box = h('div', { class: 'opts', role: 'group', 'aria-label': 'Antwoordopties' });
+    q.options.forEach((o, i) => {
+      const sel = me.answer === i;
+      let mark = '';
+      if (!open && q.correct != null) mark = i === q.correct ? '  ✓ goed' : sel ? '  ✗' : '';
+      box.append(h('button', {
+        class: sel ? 'sel' : '', disabled: locked && !sel ? true : false, 'aria-pressed': sel ? 'true' : 'false',
+        onclick: () => { if (!locked) send(i); },
+      }, String.fromCharCode(65 + i) + '. ' + o + mark));
+    });
+    qbox.append(box);
+  } else if (q.type === 'scale') {
+    const box = h('div', { class: 'opts scale', role: 'group', 'aria-label': 'Schaal 1 tot 5' });
+    for (let i = 1; i <= 5; i++) {
+      box.append(h('button', { class: me.answer === i ? 'sel' : '', disabled: !open, 'aria-pressed': me.answer === i ? 'true' : 'false', onclick: () => send(i) }, String(i)));
+    }
+    qbox.append(box, h('div', { class: 'scale-ends' }, h('span', {}, '1 ' + (q.scaleLabels[0] || '')), h('span', {}, '5 ' + (q.scaleLabels[1] || ''))));
+  } else {
+    const mine = Array.isArray(me.answer) ? me.answer : [];
+    const input = h('input', { maxlength: 40, placeholder: 'Typ een woord of korte zin', 'aria-label': 'Je antwoord', disabled: !open || mine.length >= 3 });
+    const form = h('form', { class: 'row', onsubmit: (e) => { e.preventDefault(); const v = input.value.trim(); if (v) { input.value = ''; send(v); } } },
+      h('div', { style: 'flex:1;min-width:200px' }, input),
+      h('button', { class: 'act', type: 'submit', disabled: !open || mine.length >= 3 }, 'Verstuur'));
+    qbox.append(form);
+    if (mine.length) qbox.append(h('p', { class: 'small' }, 'Jouw antwoorden: ' + mine.join(', ') + (mine.length >= 3 ? ' (maximum bereikt)' : ' (je kunt er maximaal 3 insturen)')));
+    if (open) setTimeout(() => input.focus(), 0);
+  }
+  if (open && me.answer != null && !(Array.isArray(me.answer))) {
+    qbox.append(h('p', { class: 'ok' }, q.quiz ? '✓ Antwoord ontvangen. Wacht op de uitslag.' : '✓ Antwoord ontvangen. Je kunt het nog wijzigen.'));
+  }
+  if (!open) {
+    qbox.append(h('p', { class: 'muted' }, 'Stemmen is gesloten.'));
+    if (q.quiz && me.answer != null) {
+      qbox.append(h('p', { class: 'ok' }, (me.correct ? '✓ Goed! +' + me.points + ' punten.' : '✗ Helaas, niet goed.') + ' Je staat op plek ' + me.rank + ' (' + me.score + ' pt).'));
+    }
+  }
+}
+
+if (code.length === 5) {
+  const saved = store.get('zv-pid-' + code);
+  if (saved) {
+    pid = saved;
+    start();
+  } else showJoin();
+} else showJoin();
+</script>
+</body>
+</html>
